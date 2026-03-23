@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether Binary Network – Das Binäre Internet</title>
+    <meta name="description" content="Dezentrales Binäres Internet. 0.3% CPU | 0.3% RAM | 0.3% GPU | 0.3% Bandwidth. Zero HTML/CSS overhead.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="bg-mesh"></div>
+    <div class="bg-grid"></div>
+    
+    <!-- PoW Overlay -->
+    <div class="pow-overlay" id="pow-overlay">
+        <div class="pow-card glass-deep">
+            <div class="pow-spinner"></div>
+            <h2>Anti-Sybil Verifizierung</h2>
+            <p class="pow-subtitle">Proof-of-Work wird berechnet...</p>
+            <div class="pow-progress">
+                <div class="pow-bar" id="pow-bar"></div>
+            </div>
+            <p class="pow-nonce" id="pow-nonce">Nonce: 0</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="glass-header">
+        <div class="logo">
+            <div class="logo-orb">
+                <div class="orb-ring"></div>
+            </div>
+            <div class="logo-text">
+                <h1>AETHER <span>Binary Network</span></h1>
+                <p class="logo-version">v1.0.0 · Das Binäre Internet</p>
+            </div>
+        </div>
+        <div class="header-badges">
+            <div class="badge badge-trust" id="badge-trust">
+                <span class="badge-dot dot-green"></span>
+                Trust: <strong id="val-trust">100</strong>
+            </div>
+            <div class="badge badge-role" id="badge-role">
+                <span class="badge-dot dot-purple"></span>
+                <span id="val-role">Evaluating</span>
+            </div>
+            <div class="badge badge-proto" id="badge-proto">
+                <span class="badge-dot dot-blue"></span>
+                Protocol: <strong>0xAE Binary</strong>
+            </div>
+            <div class="badge badge-conn" id="badge-conn">
+                <span class="badge-dot dot-yellow"></span>
+                <span id="val-conn">Connecting</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard">
+        <!-- Resource Governor Stats -->
+        <section class="stats-row">
+            <div class="stat-card glass-panel" id="stat-cpu">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-body">
+                    <p class="stat-label">CPU Budget</p>
+                    <p class="stat-value"><span id="val-cpu">0.00</span><small>%</small></p>
+                    <div class="stat-bar"><div class="stat-fill fill-cyan" id="bar-cpu" style="width:0%"></div></div>
+                    <p class="stat-limit">Limit: 0.3%</p>
+                </div>
+            </div>
+            <div class="stat-card glass-panel" id="stat-ram">
+                <div class="stat-icon">🧠</div>
+                <div class="stat-body">
+                    <p class="stat-label">RAM Usage</p>
+                    <p class="stat-value"><span id="val-ram">0</span><small> MB</small></p>
+                    <div class="stat-bar"><div class="stat-fill fill-green" id="bar-ram" style="width:0%"></div></div>
+                    <p class="stat-limit">Limit: 0.3%</p>
+                </div>
+            </div>
+            <div class="stat-card glass-panel" id="stat-gpu">
+                <div class="stat-icon">🎮</div>
+                <div class="stat-body">
+                    <p class="stat-label">GPU Parity</p>
+                    <p class="stat-value"><span id="val-gpu">0.00</span><small>%</small></p>
+                    <div class="stat-bar"><div class="stat-fill fill-purple" id="bar-gpu" style="width:0%"></div></div>
+                    <p class="stat-limit">Limit: 0.3%</p>
+                </div>
+            </div>
+            <div class="stat-card glass-panel" id="stat-bw">
+                <div class="stat-icon">📶</div>
+                <div class="stat-body">
+                    <p class="stat-label">Bandwidth</p>
+                    <p class="stat-value"><span id="val-bw">0</span><small> KB/s</small></p>
+                    <div class="stat-bar"><div class="stat-fill fill-orange" id="bar-bw" style="width:0%"></div></div>
+                    <p class="stat-limit">Limit: 0.3%</p>
+                </div>
+            </div>
+            <div class="stat-card glass-panel stat-wide" id="stat-peers">
+                <div class="stat-icon">🕸️</div>
+                <div class="stat-body">
+                    <p class="stat-label">Connected Peers</p>
+                    <p class="stat-value stat-big"><span id="val-peers">0</span></p>
+                    <p class="stat-limit">Kademlia DHT Cluster</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Grid -->
+        <section class="content-grid">
+            <!-- Swarm Visualizer -->
+            <div class="glass-panel main-panel">
+                <div class="panel-head">
+                    <h2>🌐 Swarm Topology</h2>
+                    <div class="panel-controls">
+                        <button class="btn btn-sm btn-ghost" id="btn-seed" title="Datei in den Swarm laden">
+                            📤 Seed File
+                        </button>
+                        <button class="btn btn-sm btn-primary" id="btn-simulate" title="Simulated Content Load">
+                            ⚡ Simulate Load
+                        </button>
+                        <input type="file" id="file-input" class="hidden-input" accept="video/webm,video/mp4,application/octet-stream">
+                    </div>
+                </div>
+                <div class="swarm-viz" id="swarm-viz">
+                    <canvas id="swarm-canvas"></canvas>
+                    <div class="viz-overlay">
+                        <div class="viz-self" id="viz-self">
+                            <div class="self-pulse"></div>
+                            <span>YOU</span>
+                        </div>
+                    </div>
+                    <div class="viz-legend">
+                        <span class="legend-item"><span class="dot dot-nexus"></span>Nexus</span>
+                        <span class="legend-item"><span class="dot dot-sigma"></span>Sigma</span>
+                        <span class="legend-item"><span class="dot dot-alpha"></span>Alpha</span>
+                        <span class="legend-item"><span class="dot dot-omega"></span>Omega</span>
+                    </div>
+                </div>
+
+                <!-- Video Player (for Swarm streaming) -->
+                <div class="video-section hidden" id="video-section">
+                    <video id="player" controls muted></video>
+                    <p class="stream-status">Status: <span id="stream-status">Waiting...</span></p>
+                </div>
+            </div>
+
+            <!-- Telemetry Panel -->
+            <div class="glass-panel side-panel">
+                <div class="panel-head">
+                    <h2>📡 Binary Telemetry</h2>
+                    <button class="btn btn-sm btn-ghost" id="btn-clear">Clear</button>
+                </div>
+                <div class="log-window" id="log-window">
+                    <div class="log-entry sys">[BOOT] Aether Binary Network Client initializing...</div>
+                </div>
+                
+                <!-- Protocol Info -->
+                <div class="proto-info">
+                    <h3>Protocol Stats</h3>
+                    <div class="proto-grid">
+                        <div class="proto-item">
+                            <span class="proto-key">Wire Format</span>
+                            <span class="proto-val" id="val-wire">MsgPack 0xAE</span>
+                        </div>
+                        <div class="proto-item">
+                            <span class="proto-key">XOR Ops</span>
+                            <span class="proto-val" id="val-xor">0</span>
+                        </div>
+                        <div class="proto-item">
+                            <span class="proto-key">Chunks Cached</span>
+                            <span class="proto-val" id="val-chunks">0 / 200</span>
+                        </div>
+                        <div class="proto-item">
+                            <span class="proto-key">BW Saved</span>
+                            <span class="proto-val" id="val-saved">0 MB</span>
+                        </div>
+                        <div class="proto-item">
+                            <span class="proto-key">GeoHash</span>
+                            <span class="proto-val" id="val-geo">...</span>
+                        </div>
+                        <div class="proto-item">
+                            <span class="proto-key">Relay Count</span>
+                            <span class="proto-val" id="val-relay">0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="client.js"></script>
+</body>
+</html>

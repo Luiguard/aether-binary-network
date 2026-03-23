@@ -1,0 +1,33 @@
+{
+  "name": "aether-binary-network",
+  "version": "1.0.0",
+  "description": "Das Binäre Internet – Ultra-lean Decentralized Swarm Network. 0.3% CPU | 0.3% RAM | 0.3% GPU | 0.3% Bandwidth. No HTML/CSS/JS overhead for data transport. A gift to humanity.",
+  "main": "src/server.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "msgpackr": "^1.10.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "binary-internet",
+    "swarm",
+    "decentralized",
+    "zero-copy",
+    "webgpu",
+    "reed-solomon",
+    "aether",
+    "gift-to-humanity"
+  ],
+  "author": "Aether Collective",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aether-collective/aether-binary-network"
+  }
+}
