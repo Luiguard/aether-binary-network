@@ -1,0 +1,10 @@
+{"instruction": "Baue mir einen blauen Login-Button", "input": "", "output": "[1, \"Button\", {\"id\": \"btn_login\", \"label\": \"Login\", \"color\": \"blue\", \"action\": 18}]"}
+{"instruction": "Erstelle eine Profilseite für Max mit einem runden Profilbild", "input": "", "output": "[1, \"View\", {\"id\": \"view_profile\", \"layout\": \"col\"}, [ [1, \"Image\", {\"src\": \"@max\", \"shape\": \"circle\"}], [1, \"Text\", {\"content\": \"Max\", \"style\": \"h1\"}] ]]"}
+{"instruction": "Mach eine Navbar mit Home und Settings", "input": "", "output": "[1, \"Nav\", {}, [ [1, \"NavItem\", {\"label\": \"Home\", \"icon\": \"0x1A\"}], [1, \"NavItem\", {\"label\": \"Settings\", \"icon\": \"0x1B\"}] ]]"}
+{"instruction": "Zeige eine rot blinkende Fehlermeldung mit Text 'Verbindung verloren'", "input": "", "output": "[1, \"Alert\", {\"type\": \"error\", \"anim\": \"flash_red\"}, [1, \"Text\", {\"content\": \"Verbindung verloren\"}]]"}
+{"instruction": "Ein einfaches Textfeld für E-Mail Eingabe", "input": "", "output": "[1, \"Input\", {\"id\": \"inp_email\", \"type\": \"email\", \"placeholder\": \"E-Mail\"}]"}
+{"instruction": "Zwei Buttons nebeneinander: Ja in grün und Nein in grau", "input": "", "output": "[1, \"Row\", {}, [ [1, \"Button\", {\"label\": \"Ja\", \"color\": \"green\"}], [1, \"Button\", {\"label\": \"Nein\", \"color\": \"gray\"}] ]]"}
+{"instruction": "Ein leeres Dashboard Panel", "input": "", "output": "[1, \"Panel\", {\"id\": \"dashboard_main\", \"glass\": true}]"}
+{"instruction": "Zeige 0.3% CPU Nutzung als kleinen Badge", "input": "", "output": "[1, \"Badge\", {\"icon\": \"⚡\", \"color\": \"cyan\", \"value\": \"0.3%\"}]"}
+{"instruction": "Baue eine Tabelle mit Name und Trust Score", "input": "", "output": "[1, \"Table\", {\"cols\": [\"Name\", \"Trust Score\"]}]"}
+{"instruction": "Ein zentrierter Titel 'Aether Swarm' mit Untertitel 'Offline'", "input": "", "output": "[1, \"Col\", {\"align\": \"center\"}, [ [1, \"Text\", {\"content\": \"Aether Swarm\", \"style\": \"h1\"}], [1, \"Text\", {\"content\": \"Offline\", \"style\": \"sub\"}] ]]"}
