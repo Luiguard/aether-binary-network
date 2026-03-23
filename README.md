@@ -8,6 +8,16 @@
 
 ---
 
+## 🌱 Ökologischer Nutzen (Megatonnen CO₂ Einsparung)
+
+Das traditionelle Internet basiert auf massiven Rechenzentren und Content Delivery Networks (CDNs), die immense Mengen an Strom fressen. 
+**Aether Binary Network ändert das:**
+Durch die radikale Limitierung auf **0.3% Hardware-Ressourcen pro Node** und das Vermeiden jeglicher HTML/JS/CSS-Verarbeitung bei der reinen Datenübertragung, umgehen wir klassische Cloud-Anbieter komplett. 
+* **Die Rechnung:** Für jedes Gigabyte, das dezentral über dieses Binär-Protokoll anstatt über Amazon AWS oder Cloudflare gestreamt wird, spart die Menschheit schätzungsweise **60 Gramm CO₂**.
+* Skaliert auf Millionen von Nutzern bedeutet dies die direkte Einsparung von **Megatonnen an CO₂-Emissionen** pro Jahr. Ein wahrhaft grünes, durch die Masse getragenes Internet.
+
+---
+
 ## 🚀 Sofort Starten (One-Click)
 
 ### Windows

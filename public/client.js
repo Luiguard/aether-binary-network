@@ -122,6 +122,7 @@ const ui = {
     xor:        $('val-xor'),
     chunks:     $('val-chunks'),
     saved:      $('val-saved'),
+    co2:        $('val-co2'),
     geo:        $('val-geo'),
     relay:      $('val-relay'),
     wire:       $('val-wire'),
@@ -434,6 +435,10 @@ function handleChunk(index, data, fromId) {
     bwSaved += data.byteLength / 1024 / 1024;
     ui.saved.textContent = bwSaved.toFixed(2) + ' MB';
     
+    // Ecological impact: ~0.06g CO2 saved per MB bypassing traditional cloud CDNs
+    const co2Saved = bwSaved * 0.06;
+    ui.co2.textContent = co2Saved.toFixed(3) + 'g';
+    
     // RAM bar
     const ramUsed = memCache.size * CHUNK_SIZE / 1024 / 1024;
     ui.ram.textContent = ramUsed.toFixed(0);
@@ -663,6 +668,7 @@ function simulateSwarmLoad(manifest) {
                 log('rx', `✓ Chunk ${chunk.id} [${chunk.hash}] validated via swarm DataChannel`);
                 bwSaved += 0.064;
                 ui.saved.textContent = bwSaved.toFixed(2) + ' MB';
+                ui.co2.textContent = (bwSaved * 0.06).toFixed(3) + 'g';
                 computeXORParity();
             }
         }, delay);
