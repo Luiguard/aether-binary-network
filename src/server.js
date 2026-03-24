@@ -38,6 +38,7 @@ const { AetherNamingService }             = require('./naming/naming-service');
 const { MediaEngine }                     = require('./media/media-engine');
 const { FederationManager }               = require('./federation/federation');
 const { RateLimiter, sanitizeAST, securityHeaders, validateNameInput, validateContentId, validateUploadSize, APIKeyStore } = require('./security/security');
+const { TelemetryBroker }                 = require('./telemetry/telemetry-broker');
 
 // ─── STATE ───────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -54,6 +55,7 @@ const media = new MediaEngine(chunkEngine, store);
 const federation = new FederationManager(store);
 const rateLimiter = new RateLimiter(60000, 120); // 120 requests/minute
 const apiKeys = new APIKeyStore(path.join(DATA_DIR, 'api-keys.json'));
+const telemetryBroker = new TelemetryBroker(DATA_DIR);
 rateLimiter.startCleanup();
 
 // Setup persistence
@@ -237,6 +239,19 @@ const server = http.createServer((req, res) => {
             const valid = AetherIdentity.verify(body.data, body.signature, body.publicKey);
             jsonRes(200, { valid });
         });
+    }
+    
+    // ─── TELEMETRY (COMMERCE): Ingest tracking data ───
+    if (req.url === '/api/telemetry' && req.method === 'POST') {
+        return readJSON(body => {
+            const result = telemetryBroker.ingest(body.payload, body.signature, body.publicKey);
+            jsonRes(result.error ? 400 : 200, result);
+        });
+    }
+
+    // ─── TELEMETRY (COMMERCE): Read analytics ───
+    if (req.url === '/api/telemetry/report' && req.method === 'GET') {
+        return jsonRes(200, telemetryBroker.getReport());
     }
     
     // ─── SEARCH ───

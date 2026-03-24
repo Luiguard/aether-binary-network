@@ -366,6 +366,27 @@ const AetherRenderer = (() => {
             s.dataset.id = props.id ?? '';
             return s;
         },
+
+        AdSlot(props, children) {
+            const wrap = el('div', 'ae-ad-slot');
+            if (props.id) wrap.id = props.id;
+            
+            // Native Impression Tracking (No JS needed from Advertiser)
+            if (props.telemetry) {
+                const observer = new IntersectionObserver(entries => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            sendTelemetry('impression', props.targetId || props.id);
+                            observer.disconnect(); // Only track once
+                        }
+                    });
+                }, { threshold: 0.5 });
+                setTimeout(() => observer.observe(wrap), 100);
+            }
+
+            renderChildren(children, wrap);
+            return wrap;
+        },
     };
 
     // ─── HELPERS ──────────────────────────────────────────────────
@@ -413,8 +434,32 @@ const AetherRenderer = (() => {
                 if (action[0] === 'inc') setState(action[1], (appState[action[1]] || 0) + 1);
                 if (action[0] === 'dec') setState(action[1], (appState[action[1]] || 0) - 1);
                 if (action[0] === 'toggle') setState(action[1], !appState[action[1]]);
+                if (action[0] === 'track') sendTelemetry('click', action[1]);
             }
         }
+
+    // ─── TELEMETRY & COMMERCE ───────────────────────────────────
+    async function sendTelemetry(type, targetId) {
+        // Demographics provided natively by the client browser (Opt-in)
+        const profile = { age: '25-34', intent: 'tech' }; 
+        const payload = { type, target: targetId, timestamp: Date.now(), profile, isAd: true };
+        
+        // Mocking cryptographic signature setup for Proof-of-Click
+        // Real implementation signs `JSON.stringify(payload)` with AetherIdentity's private key
+        const mockPublicKey = 'ed25519-public-key-placeholder';
+        const mockSignature = 'deadbeef-signature-placeholder';
+
+        try {
+            await fetch('/api/telemetry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ payload, signature: mockSignature, publicKey: mockPublicKey })
+            });
+            console.log(`[Aether Telemetry] Native ${type} reported securely for ${targetId}.`);
+        } catch (e) {
+            console.error('[Aether Telemetry] Failed to deliver metrics.', e);
+        }
+    }
 
     function applyBaseProps(node, props) {
         if (!props) return;

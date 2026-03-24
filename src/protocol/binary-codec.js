@@ -38,10 +38,11 @@ try {
 const MAGIC = 0xAE;
 
 const MSG_TYPE = {
-    CONTROL:  0x01,
-    CHUNK:    0x02,
-    PARITY:   0x03,
-    TRUST:    0x04,
+    CONTROL:   0x01,
+    CHUNK:     0x02,
+    PARITY:    0x03,
+    TRUST:     0x04,
+    TELEMETRY: 0x05, // Commercial Tracking & Proof-of-Click
 };
 
 // ─── ENCODER ───────────────────────────────────────────────────
