@@ -176,6 +176,34 @@ class TrustLedger {
         this.history.push(entry);
         if (this.history.length > 1000) this.history.shift();
     }
+    
+    /**
+     * Persist memory to disk.
+     */
+    persist(filePath) {
+        try {
+            const fs = require('fs');
+            const data = {
+                scores: Array.from(this.scores.entries()),
+                isolated: Array.from(this.isolated)
+            };
+            fs.writeFileSync(filePath, JSON.stringify(data));
+        } catch (err) {}
+    }
+    
+    /**
+     * Restore memory from disk.
+     */
+    load(filePath) {
+        try {
+            const fs = require('fs');
+            if (!fs.existsSync(filePath)) return;
+            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            if (data.scores) this.scores = new Map(data.scores);
+            if (data.isolated) this.isolated = new Set(data.isolated);
+            console.log(`[TRUST] Memory restored: ${this.scores.size} identities, ${this.isolated.size} isolated.`);
+        } catch (err) {}
+    }
 }
 
 module.exports = { TrustLedger, TRUST_CONFIG, generateChallenge, verifyPoW };

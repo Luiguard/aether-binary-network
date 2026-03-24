@@ -26,11 +26,12 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // ─── INTERNAL MODULES ────────────────────────────────────────
-const { encodeControl, decode, MSG_TYPE } = require('./protocol/binary-codec');
+const { encodeControl, encodeChunk: encodeChunkFrame, decode, MSG_TYPE } = require('./protocol/binary-codec');
 const { ResourceGovernor }                = require('./limiter/resource-governor');
 const { TrustLedger, TRUST_CONFIG, generateChallenge, verifyPoW } = require('./trust/zero-trust');
 const { KademliaDHT }                     = require('./swarm/kademlia-dht');
 const { assignRole, getRoleInfo, ROLES }  = require('./swarm/role-evaluator');
+const { ChunkEngine }                     = require('./chunks/chunk-engine');
 
 // ─── STATE ───────────────────────────────────────────────────
 const nodes = new Map();       // nodeId -> { ws, role, verified, geoHash, challenge }
@@ -38,6 +39,25 @@ const sessions = new Set();    // Set of "idA_idB" session keys
 const dht = new KademliaDHT();
 const trust = new TrustLedger();
 const governor = new ResourceGovernor();
+const chunkEngine = new ChunkEngine();
+
+// Setup persistence
+const TRUST_DB = path.join(__dirname, '..', 'trust-ledger.dat');
+trust.load(TRUST_DB);
+
+// Periodic auto-save (every 5 mins)
+setInterval(() => {
+    trust.persist(TRUST_DB);
+}, 5 * 60 * 1000);
+
+// Graceful shutdown
+function shutdown() {
+    console.log('\n[SERVER] Graceful shutdown initiated. Saving state...');
+    trust.persist(TRUST_DB);
+    process.exit(0);
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // ─── MIME TYPES ──────────────────────────────────────────────
 const MIME = {
@@ -88,13 +108,99 @@ const server = http.createServer((req, res) => {
         });
         return res.end(JSON.stringify({
             name: 'Aether Binary Protocol',
-            version: '1.0.0',
+            version: '2.0.0',
             magic: '0xAE',
             types: { CONTROL: 0x01, CHUNK: 0x02, PARITY: 0x03, TRUST: 0x04 },
             encoding: 'MessagePack',
             transport: 'WebSocket/Binary + WebRTC DataChannel',
             limits: governor.profile.limits,
+            chunks: chunkEngine.getStats(),
         }));
+    }
+    
+    // ─── UPLOAD: Split file into chunks and distribute ───
+    if (req.url === '/api/upload' && req.method === 'POST') {
+        const chunks = [];
+        req.on('data', c => chunks.push(c));
+        req.on('end', () => {
+            const body = Buffer.concat(chunks);
+            const contentId = crypto.randomUUID().substring(0, 8);
+            const result = chunkEngine.split(body, contentId);
+            
+            // Broadcast manifest to all verified nodes
+            broadcastBinary({ type: 'manifest_delivery', manifest: result.manifest });
+            
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify({
+                contentId,
+                totalChunks: result.chunks.length,
+                parityChunks: result.parityChunks.length,
+                totalSize: body.length,
+                manifest: result.manifest,
+            }));
+            console.log(`[UPLOAD] ${contentId} | ${result.chunks.length} chunks + ${result.parityChunks.length} parity | ${body.length} bytes`);
+        });
+        return;
+    }
+    
+    // ─── DOWNLOAD: Reassemble chunks into original file ───
+    if (req.url.startsWith('/api/download/')) {
+        const contentId = req.url.split('/api/download/')[1];
+        const manifest = chunkEngine.getManifest(contentId);
+        if (!manifest) {
+            res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+            return res.end('Content not found');
+        }
+        const reassembled = chunkEngine.reassemble(contentId, new Map());
+        if (!reassembled) {
+            res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+            return res.end('Reassembly failed');
+        }
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
+        return res.end(reassembled);
+    }
+    
+    // ─── CHUNK: Get individual chunk by hash ───
+    if (req.url.startsWith('/api/chunk/')) {
+        const hash = req.url.split('/api/chunk/')[1];
+        const chunk = chunkEngine.getChunk(hash);
+        if (!chunk) {
+            res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
+            return res.end('Chunk not found');
+        }
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
+        return res.end(chunk);
+    }
+    
+    // ─── AI PROXY: Forward to Python inference server ───
+    if (req.url === '/api/ai/generate' && req.method === 'POST') {
+        const bodyParts = [];
+        req.on('data', c => bodyParts.push(c));
+        req.on('end', () => {
+            const body = Buffer.concat(bodyParts).toString();
+            const http2 = require('http');
+            const aiReq = http2.request({ hostname: '127.0.0.1', port: 5050, path: '/generate', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (aiRes) => {
+                const parts = [];
+                aiRes.on('data', c => parts.push(c));
+                aiRes.on('end', () => {
+                    res.writeHead(aiRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                    res.end(Buffer.concat(parts));
+                });
+            });
+            aiReq.on('error', () => {
+                res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                res.end(JSON.stringify({ error: 'AI Inference Server offline. Starte: python ai/serve.py' }));
+            });
+            aiReq.write(body);
+            aiReq.end();
+        });
+        return;
+    }
+    
+    // ─── CORS preflight ───
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+        return res.end();
     }
     
     // Static file serving
@@ -280,20 +386,22 @@ wss.on('connection', (ws) => {
                 }
                 
                 case 'request_manifest': {
-                    // Binary manifest for content distribution
-                    sendBinary(ws, {
-                        type: 'manifest_delivery',
-                        manifest: {
-                            contentId: msg.contentId || 'default',
-                            layers: 2,
-                            chunkSize: 256 * 1024,
-                            chunks: [
-                                { id: 'C_001', hash: 'fb8e20fc', type: 'Data' },
-                                { id: 'C_002', hash: 'a52f9b12', type: 'Data' },
-                                { id: 'P_001', hash: '3d8f1e5a', type: 'Parity' },
-                            ],
-                        },
-                    });
+                    const manifest = chunkEngine.getManifest(msg.contentId);
+                    if (manifest) {
+                        sendBinary(ws, { type: 'manifest_delivery', manifest });
+                    } else {
+                        sendBinary(ws, { type: 'error', reason: 'Content not found', contentId: msg.contentId });
+                    }
+                    break;
+                }
+                
+                case 'request_chunk': {
+                    const chunkData = chunkEngine.getChunk(msg.hash);
+                    if (chunkData && governor.canProcess(chunkData.length)) {
+                        governor.bw.record(chunkData.length);
+                        ws.send(encodeChunkFrame(msg.index, chunkData));
+                        trust.adjust(id, 1, 'CHUNK_SERVED');
+                    }
                     break;
                 }
             }
@@ -333,8 +441,8 @@ server.listen(PORT, () => {
     const gov = governor.getSnapshot();
     console.log('');
     console.log('═══════════════════════════════════════════════════════════');
-    console.log('  🌐 AETHER BINARY NETWORK v1.0.0');
-    console.log('  Das Binäre Internet – Massentauglicher Swarm');
+    console.log('  🌐 AETHER BINARY NETWORK v2.0.0');
+    console.log('  Das Binäre Internet – Voll Funktional');
     console.log('═══════════════════════════════════════════════════════════');
     console.log(`  📡 Server:       http://localhost:${PORT}`);
     console.log(`  📊 API Stats:    http://localhost:${PORT}/api/stats`);
@@ -348,6 +456,8 @@ server.listen(PORT, () => {
     console.log('  🛡️  Zero-Trust PoW:     ACTIVE');
     console.log('  🌍 Kademlia DHT:        ACTIVE');
     console.log('  📦 Binary Protocol:     MsgPack (0xAE)');
+    console.log('  📂 Chunk Engine:        ACTIVE (FEC)');
+    console.log('  🤖 AI Builder:          http://localhost:5050');
     console.log('  🔒 GDPR Compliance:     ENFORCED');
     console.log('═══════════════════════════════════════════════════════════');
     console.log('');

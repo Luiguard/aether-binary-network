@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether Binary Builder</title>
+    <link rel="stylesheet" href="renderer.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117; color: #e6edf3;
+            min-height: 100vh; display: flex; flex-direction: column;
+        }
+        .builder-header {
+            padding: 16px 24px; display: flex; align-items: center; gap: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.02);
+        }
+        .builder-header h1 { font-size: 1.2em; font-weight: 700; }
+        .builder-header .tag {
+            padding: 3px 10px; border-radius: 20px; font-size: 11px;
+            background: rgba(99,102,241,0.2); color: #818cf8; font-weight: 600;
+        }
+        .builder-header a {
+            margin-left: auto; color: #8b949e; text-decoration: none; font-size: 14px;
+        }
+        .builder-header a:hover { color: #e6edf3; }
+
+        .builder-main {
+            flex: 1; display: grid; grid-template-columns: 1fr 1fr;
+            gap: 0; max-height: calc(100vh - 56px);
+        }
+
+        .builder-input-panel {
+            display: flex; flex-direction: column;
+            border-right: 1px solid rgba(255,255,255,0.08);
+            padding: 20px;
+        }
+        .builder-input-panel h2 {
+            font-size: 0.9em; color: #8b949e; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 12px;
+        }
+        #prompt-input {
+            flex: 1; resize: none; background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+            color: #e6edf3; padding: 14px; font-size: 14px;
+            font-family: inherit; min-height: 120px;
+        }
+        #prompt-input:focus { outline: none; border-color: #6366f1; }
+        #prompt-input::placeholder { color: #484f58; }
+
+        .builder-actions {
+            display: flex; gap: 10px; margin-top: 12px; align-items: center;
+        }
+        #btn-generate {
+            background: #6366f1; color: #fff; border: none; padding: 10px 24px;
+            border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px;
+            transition: all 0.2s;
+        }
+        #btn-generate:hover { filter: brightness(1.15); }
+        #btn-generate:disabled { opacity: 0.4; cursor: not-allowed; }
+        #btn-demo {
+            background: rgba(255,255,255,0.06); color: #8b949e; border: 1px solid rgba(255,255,255,0.1);
+            padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 14px;
+            transition: all 0.2s;
+        }
+        #btn-demo:hover { background: rgba(255,255,255,0.1); color: #e6edf3; }
+        .status { margin-left: auto; font-size: 12px; color: #8b949e; }
+
+        .builder-ast {
+            margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.03);
+            border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);
+            font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px;
+            color: #7ee787; max-height: 300px; overflow-y: auto;
+            white-space: pre-wrap; word-break: break-all;
+        }
+
+        .builder-preview-panel {
+            display: flex; flex-direction: column; padding: 20px; overflow-y: auto;
+        }
+        .builder-preview-panel h2 {
+            font-size: 0.9em; color: #8b949e; text-transform: uppercase;
+            letter-spacing: 1px; margin-bottom: 12px;
+        }
+        #builder-preview {
+            flex: 1; min-height: 200px; padding: 20px;
+            background: rgba(255,255,255,0.02); border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        #builder-preview:empty::after {
+            content: 'Gib links einen Prompt ein...';
+            color: #484f58; font-style: italic;
+        }
+
+        .builder-wire {
+            margin-top: 12px; display: flex; gap: 12px;
+        }
+        .wire-stat {
+            padding: 6px 12px; background: rgba(255,255,255,0.03);
+            border-radius: 6px; font-size: 12px; color: #8b949e;
+        }
+        .wire-stat b { color: #06b6d4; }
+
+        @media (max-width: 768px) {
+            .builder-main { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header class="builder-header">
+        <h1>🔮 Aether Binary Builder</h1>
+        <span class="tag">0xAE Protocol</span>
+        <span class="tag">1B AI</span>
+        <a href="/">← Dashboard</a>
+    </header>
+
+    <main class="builder-main">
+        <section class="builder-input-panel">
+            <h2>📝 Prompt → Binary AST</h2>
+            <textarea id="prompt-input" placeholder="Beschreibe was du bauen willst, z.B.: 'Ein Login-Formular mit E-Mail, Passwort und einem blauen Button'"></textarea>
+            <div class="builder-actions">
+                <button id="btn-generate">⚡ Generieren</button>
+                <button id="btn-demo">Demo laden</button>
+                <span class="status" id="gen-status"></span>
+            </div>
+            <div class="builder-ast" id="ast-output">// Binärer AST erscheint hier...</div>
+        </section>
+
+        <section class="builder-preview-panel">
+            <h2>👁️ Live-Vorschau (gerendert aus Binary)</h2>
+            <div id="builder-preview"></div>
+            <div class="builder-wire">
+                <div class="wire-stat">Bytes über Draht: <b id="wire-bytes">0</b></div>
+                <div class="wire-stat">vs. HTML wäre: <b id="wire-html">0</b></div>
+                <div class="wire-stat">Einsparung: <b id="wire-save">0%</b></div>
+            </div>
+        </section>
+    </main>
+
+    <script src="renderer.js"></script>
+    <script>
+        const promptInput = document.getElementById('prompt-input');
+        const btnGenerate = document.getElementById('btn-generate');
+        const btnDemo = document.getElementById('btn-demo');
+        const astOutput = document.getElementById('ast-output');
+        const preview = document.getElementById('builder-preview');
+        const status = document.getElementById('gen-status');
+        const wireBytes = document.getElementById('wire-bytes');
+        const wireHtml = document.getElementById('wire-html');
+        const wireSave = document.getElementById('wire-save');
+
+        // Demo ASTs for offline testing
+        const DEMOS = [
+            [1, "Col", {"align": "center", "gap": "15px"}, [
+                [1, "Text", {"content": "Willkommen beim Aether", "style": "h2"}],
+                [1, "Input", {"placeholder": "Benutzername"}],
+                [1, "Input", {"type": "password", "placeholder": "Passwort"}],
+                [1, "Button", {"label": "Login", "color": "blue"}]
+            ]],
+            [1, "Panel", {"glass": true}, [
+                [1, "Text", {"content": "Saldo: 0.05 BTC", "style": "h1", "color": "gold"}],
+                [1, "Row", {}, [
+                    [1, "Button", {"label": "Senden", "color": "green"}],
+                    [1, "Button", {"label": "Empfangen", "color": "blue"}]
+                ]]
+            ]],
+            [1, "Panel", {"glass": true, "padding": 20}, [
+                [1, "Text", {"content": "Einstellungen", "style": "h1"}],
+                [1, "Grid", {"cols": 2}, [
+                    [1, "Col", {}, [
+                        [1, "Text", {"content": "Netzwerk"}],
+                        [1, "Switch", {"label": "Swarm-P2P"}],
+                        [1, "Switch", {"label": "Verschlüsselung"}]
+                    ]],
+                    [1, "Col", {}, [
+                        [1, "Text", {"content": "Ressourcen"}],
+                        [1, "Slider", {"label": "CPU Limit", "val": 0.3}],
+                        [1, "Slider", {"label": "RAM Limit", "val": 0.3}]
+                    ]]
+                ]]
+            ]],
+            [1, "View", {"id": "msg_view"}, [
+                [1, "Nav", {"title": "Chat: Alice"}],
+                [1, "List", {"scroll": true}, [
+                    [1, "Msg", {"from": "system", "text": "Verschlüsselt"}],
+                    [1, "Msg", {"from": "Alice", "text": "Hey! Alles klar?"}],
+                    [1, "Msg", {"from": "Du", "text": "Ja, läuft über den Swarm!"}]
+                ]],
+                [1, "Row", {}, [
+                    [1, "Input", {"placeholder": "Nachricht..."}],
+                    [1, "Button", {"icon": "send", "color": "blue"}]
+                ]]
+            ]],
+        ];
+
+        let demoIdx = 0;
+
+        function updateWireStats(ast) {
+            const binarySize = JSON.stringify(ast).length;
+            const htmlEstimate = binarySize * 12; // average HTML is 12x larger
+            const saving = Math.round((1 - binarySize / htmlEstimate) * 100);
+            wireBytes.textContent = binarySize + ' B';
+            wireHtml.textContent = htmlEstimate + ' B';
+            wireSave.textContent = saving + '%';
+        }
+
+        function renderAST(ast) {
+            astOutput.textContent = JSON.stringify(ast, null, 2);
+            AetherRenderer.render(ast, preview);
+            updateWireStats(ast);
+        }
+
+        btnDemo.addEventListener('click', () => {
+            const demo = DEMOS[demoIdx % DEMOS.length];
+            demoIdx++;
+            renderAST(demo);
+            promptInput.value = '(Demo #' + demoIdx + ')';
+        });
+
+        btnGenerate.addEventListener('click', async () => {
+            const prompt = promptInput.value.trim();
+            if (!prompt) return;
+
+            btnGenerate.disabled = true;
+            status.textContent = '⏳ KI denkt...';
+
+            try {
+                const res = await fetch('/api/ai/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt }),
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    status.textContent = '⚠️ ' + data.error;
+                    astOutput.textContent = data.error;
+                } else if (data.valid && data.ast) {
+                    renderAST(data.ast);
+                    status.textContent = '✅ Binary AST generiert';
+                } else {
+                    astOutput.textContent = data.raw || 'Keine Ausgabe';
+                    status.textContent = '⚠️ Ungültiger AST';
+                }
+            } catch (e) {
+                status.textContent = '❌ Server nicht erreichbar';
+            }
+
+            btnGenerate.disabled = false;
+        });
+
+        promptInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) btnGenerate.click();
+        });
+    </script>
+</body>
+</html>

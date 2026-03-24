@@ -3,27 +3,27 @@ AETHER BINARY NETWORK - 1B Model QLoRA Training Script
 Windows Native Optimized for RTX 3060 Mobile (6GB VRAM)
 """
 import torch
-print(f"CUDA verfübar: {torch.cuda.is_available()}")
+import time
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainerCallback
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from trl import SFTTrainer, SFTConfig
+
+print(f"CUDA verfügbar: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"Grafikkarte: {torch.cuda.get_device_name(0)}")
-
-from datasets import load_dataset
-from trl import SFTTrainer, SFTConfig
-from transformers import TrainerCallback
-import time
 
 # --- THERMAL THROTTLE (Lüfter-Bremse) ---
 class ThermalThrottleCallback(TrainerCallback):
     """Pausiert das Training nach jedem Schritt, um die GPU abkühlen zu lassen."""
-    def __init__(self, cooldown_seconds=2.0):
+    def __init__(self, cooldown_seconds=3.0):
         self.cooldown = cooldown_seconds
         
     def on_step_end(self, args, state, control, **kwargs):
+        # Zeige Fortschritt und kühle ab
+        print(f"\n[THERMAL] Cooling down for {self.cooldown}s...")
         time.sleep(self.cooldown)
 # ----------------------------------------
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from trl import SFTTrainer, SFTConfig
 
 model_id = "Qwen/Qwen1.5-1.8B-Chat"
 
@@ -52,9 +52,9 @@ model = prepare_model_for_kbit_training(model)
 
 # 2. Add LoRA Adapters (Trainable path)
 peft_config = LoraConfig(
-    r=8,
-    lora_alpha=16,
-    target_modules=["q_proj", "v_proj"],
+    r=32, # Erhöhter Rang für komplexere Logik
+    lora_alpha=64,
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     lora_dropout=0.05,
     bias="none",
     task_type="CAUSAL_LM"
@@ -76,31 +76,32 @@ def format_prompt(examples):
 dataset = load_dataset("json", data_files="dataset.jsonl", split="train")
 dataset = dataset.map(format_prompt, batched = True)
 
-# 4. Training (Small footprint)
+# 4. Training (Deep Insight Mode)
 trainer = SFTTrainer(
     model=model,
     train_dataset=dataset,
     processing_class=tokenizer,
-    callbacks=[ThermalThrottleCallback(cooldown_seconds=1.5)], # GPU abkühlen lassen
+    callbacks=[ThermalThrottleCallback(cooldown_seconds=3.0)], 
     args=SFTConfig(
         dataset_text_field="text",
         output_dir="outputs",
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
-        warmup_steps=2,
-        max_steps=20, # Ultra-short test run
-        learning_rate=2e-4,
+        warmup_steps=10,
+        max_steps=4000, # Final Boss Training (2048 Beispiele, 4 Stunden)
+        learning_rate=1e-4, # Etwas konservativer für 2000 Steps
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=5,
-        optim="adamw_8bit"
+        logging_steps=10,
+        optim="adamw_8bit",
+        report_to="none"
     ),
 )
 
-print("⚡ Starte Training auf RTX 3060...")
+print("⚡ Starte Deep Training auf RTX 3060 (Lüfter-Schonmodus)...")
 trainer.train()
 
-print("💾 Speichere das fertig trainierte Binary Modell...")
-trainer.model.save_pretrained("aether_binary_1b_model")
-tokenizer.save_pretrained("aether_binary_1b_model")
-print("✅ Training abgeschlossen!")
+print("💾 Speichere das fertig trainierte Deep-Binary-Modell...")
+trainer.model.save_pretrained("aether_binary_1b_deep_model")
+tokenizer.save_pretrained("aether_binary_1b_deep_model")
+print("✅ Mission accomplished. Die KI ist nun tiefen-gelehrt.")

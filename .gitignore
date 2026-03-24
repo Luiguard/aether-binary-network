@@ -3,3 +3,16 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Python
+ai/.venv/
+ai/__pycache__/
+*.pyc
+
+# AI Model weights (too large for git)
+ai/outputs/
+ai/aether_binary_1b_model/
+ai/aether_binary_1b_deep_model/
+
+# Trust ledger (runtime data)
+trust-ledger.dat
