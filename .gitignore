@@ -14,5 +14,6 @@ ai/outputs/
 ai/aether_binary_1b_model/
 ai/aether_binary_1b_deep_model/
 
-# Trust ledger (runtime data)
+# Runtime data
 trust-ledger.dat
+data/

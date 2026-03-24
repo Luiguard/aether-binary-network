@@ -32,14 +32,25 @@ const { TrustLedger, TRUST_CONFIG, generateChallenge, verifyPoW } = require('./t
 const { KademliaDHT }                     = require('./swarm/kademlia-dht');
 const { assignRole, getRoleInfo, ROLES }  = require('./swarm/role-evaluator');
 const { ChunkEngine }                     = require('./chunks/chunk-engine');
+const { PersistentStore }                 = require('./storage/persistent-store');
+const { AetherIdentity, AetherCrypto, SessionManager } = require('./crypto/aether-crypto');
+const { AetherNamingService }             = require('./naming/naming-service');
+const { MediaEngine }                     = require('./media/media-engine');
+const { FederationManager }               = require('./federation/federation');
 
 // ─── STATE ───────────────────────────────────────────────────
-const nodes = new Map();       // nodeId -> { ws, role, verified, geoHash, challenge }
-const sessions = new Set();    // Set of "idA_idB" session keys
+const DATA_DIR = path.join(__dirname, '..', 'data');
+const store = new PersistentStore(DATA_DIR);
+const nodes = new Map();
+const peerSessions = new Set();
 const dht = new KademliaDHT();
 const trust = new TrustLedger();
 const governor = new ResourceGovernor();
 const chunkEngine = new ChunkEngine();
+const sessionMgr = new SessionManager();
+const naming = new AetherNamingService(store);
+const media = new MediaEngine(chunkEngine, store);
+const federation = new FederationManager(store);
 
 // Setup persistence
 const TRUST_DB = path.join(__dirname, '..', 'trust-ledger.dat');
@@ -118,88 +129,158 @@ const server = http.createServer((req, res) => {
         }));
     }
     
-    // ─── UPLOAD: Split file into chunks and distribute ───
+    const CORS = { 'Access-Control-Allow-Origin': '*' };
+    const JSON_CORS = { 'Content-Type': 'application/json', ...CORS };
+    
+    function jsonRes(code, data) { res.writeHead(code, JSON_CORS); res.end(JSON.stringify(data, null, 2)); }
+    function readBody(cb) { const p=[]; req.on('data', c=>p.push(c)); req.on('end', ()=> cb(Buffer.concat(p))); }
+    function readJSON(cb) { readBody(b => { try { cb(JSON.parse(b.toString())); } catch { jsonRes(400, {error:'Invalid JSON'}); } }); }
+    
+    // ─── UPLOAD: Split file into chunks and persist ───
     if (req.url === '/api/upload' && req.method === 'POST') {
-        const chunks = [];
-        req.on('data', c => chunks.push(c));
-        req.on('end', () => {
-            const body = Buffer.concat(chunks);
+        return readBody(body => {
             const contentId = crypto.randomUUID().substring(0, 8);
             const result = chunkEngine.split(body, contentId);
-            
-            // Broadcast manifest to all verified nodes
+            // Persist all chunks + manifest
+            result.chunks.forEach(c => store.saveChunk(c.hash, c.data));
+            result.parityChunks.forEach(p => store.saveChunk(p.hash, p.data));
+            store.saveManifest(contentId, result.manifest);
             broadcastBinary({ type: 'manifest_delivery', manifest: result.manifest });
-            
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-            res.end(JSON.stringify({
-                contentId,
-                totalChunks: result.chunks.length,
-                parityChunks: result.parityChunks.length,
-                totalSize: body.length,
-                manifest: result.manifest,
-            }));
+            federation.broadcastManifest(result.manifest);
             console.log(`[UPLOAD] ${contentId} | ${result.chunks.length} chunks + ${result.parityChunks.length} parity | ${body.length} bytes`);
+            jsonRes(200, { contentId, totalChunks: result.chunks.length, parityChunks: result.parityChunks.length, totalSize: body.length, manifest: result.manifest });
         });
-        return;
     }
     
-    // ─── DOWNLOAD: Reassemble chunks into original file ───
+    // ─── DOWNLOAD ───
     if (req.url.startsWith('/api/download/')) {
         const contentId = req.url.split('/api/download/')[1];
-        const manifest = chunkEngine.getManifest(contentId);
-        if (!manifest) {
-            res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
-            return res.end('Content not found');
-        }
+        const manifest = store.getManifest(contentId) || chunkEngine.getManifest(contentId);
+        if (!manifest) return jsonRes(404, { error: 'Content not found' });
         const reassembled = chunkEngine.reassemble(contentId, new Map());
-        if (!reassembled) {
-            res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
-            return res.end('Reassembly failed');
-        }
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
+        if (!reassembled) return jsonRes(500, { error: 'Reassembly failed' });
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', ...CORS });
         return res.end(reassembled);
     }
     
-    // ─── CHUNK: Get individual chunk by hash ───
+    // ─── CHUNK ───
     if (req.url.startsWith('/api/chunk/')) {
         const hash = req.url.split('/api/chunk/')[1];
-        const chunk = chunkEngine.getChunk(hash);
-        if (!chunk) {
-            res.writeHead(404, { 'Access-Control-Allow-Origin': '*' });
-            return res.end('Chunk not found');
-        }
-        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
+        const chunk = store.getChunk(hash) || chunkEngine.getChunk(hash);
+        if (!chunk) return jsonRes(404, { error: 'Chunk not found' });
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', ...CORS });
         return res.end(chunk);
     }
     
-    // ─── AI PROXY: Forward to Python inference server ───
-    if (req.url === '/api/ai/generate' && req.method === 'POST') {
-        const bodyParts = [];
-        req.on('data', c => bodyParts.push(c));
-        req.on('end', () => {
-            const body = Buffer.concat(bodyParts).toString();
-            const http2 = require('http');
-            const aiReq = http2.request({ hostname: '127.0.0.1', port: 5050, path: '/generate', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (aiRes) => {
-                const parts = [];
-                aiRes.on('data', c => parts.push(c));
-                aiRes.on('end', () => {
-                    res.writeHead(aiRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                    res.end(Buffer.concat(parts));
-                });
-            });
-            aiReq.on('error', () => {
-                res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                res.end(JSON.stringify({ error: 'AI Inference Server offline. Starte: python ai/serve.py' }));
-            });
-            aiReq.write(body);
-            aiReq.end();
+    // ─── NAMING: Register name ───
+    if (req.url === '/api/names' && req.method === 'POST') {
+        return readJSON(body => {
+            const result = naming.register(body.name, body.contentId, body.owner || 'anon', body.signature, body.publicKey);
+            if (result.success) federation.broadcastName(result);
+            jsonRes(result.error ? 400 : 200, result);
         });
-        return;
+    }
+    
+    // ─── NAMING: Resolve ───
+    if (req.url.startsWith('/api/resolve/')) {
+        const name = decodeURIComponent(req.url.split('/api/resolve/')[1]);
+        const result = naming.resolve(name);
+        return jsonRes(result ? 200 : 404, result || { error: 'Name not found' });
+    }
+    
+    // ─── NAMING: List all ───
+    if (req.url === '/api/names') return jsonRes(200, naming.list());
+    
+    // ─── IDENTITY: Generate keypair ───
+    if (req.url === '/api/identity/generate' && req.method === 'POST') {
+        const identity = AetherIdentity.generate();
+        store.saveIdentity(identity.fingerprint, { created: Date.now() });
+        return jsonRes(200, identity);
+    }
+    
+    // ─── IDENTITY: Sign data ───
+    if (req.url === '/api/identity/sign' && req.method === 'POST') {
+        return readJSON(body => {
+            const sig = AetherIdentity.sign(body.data, body.privateKey);
+            jsonRes(200, { signature: sig });
+        });
+    }
+    
+    // ─── IDENTITY: Verify ───
+    if (req.url === '/api/identity/verify' && req.method === 'POST') {
+        return readJSON(body => {
+            const valid = AetherIdentity.verify(body.data, body.signature, body.publicKey);
+            jsonRes(200, { valid });
+        });
+    }
+    
+    // ─── SEARCH ───
+    if (req.url.startsWith('/api/search?')) {
+        const q = new URL(req.url, 'http://localhost').searchParams.get('q') || '';
+        return jsonRes(200, store.search(q));
+    }
+    
+    // ─── MEDIA: Upload ───
+    if (req.url === '/api/media/upload' && req.method === 'POST') {
+        return readBody(body => {
+            const filename = req.headers['x-filename'] || 'upload.bin';
+            const title = req.headers['x-title'] || filename;
+            const result = media.ingest(body, filename, { title });
+            jsonRes(200, result);
+        });
+    }
+    
+    // ─── MEDIA: Stream ───
+    if (req.url.startsWith('/api/media/stream/')) {
+        const contentId = req.url.split('/api/media/stream/')[1];
+        return media.stream(contentId, req, res);
+    }
+    
+    // ─── MEDIA: Catalog ───
+    if (req.url === '/api/media/catalog') return jsonRes(200, media.getCatalog());
+    
+    // ─── SESSION: Create ───
+    if (req.url === '/api/session' && req.method === 'POST') {
+        return readJSON(body => {
+            const token = sessionMgr.create(body.identity || 'anonymous', body.data || {});
+            jsonRes(200, { token });
+        });
+    }
+    
+    // ─── SESSION: Get/Set state ───
+    if (req.url.startsWith('/api/state/') && req.method === 'GET') {
+        const key = decodeURIComponent(req.url.split('/api/state/')[1]);
+        return jsonRes(200, { key, value: store.getState(key) });
+    }
+    if (req.url.startsWith('/api/state/') && req.method === 'POST') {
+        const key = decodeURIComponent(req.url.split('/api/state/')[1]);
+        return readJSON(body => { store.saveState(key, body.value); jsonRes(200, { saved: true }); });
+    }
+    
+    // ─── STORAGE STATS ───
+    if (req.url === '/api/storage') return jsonRes(200, store.getStats());
+    
+    // ─── FEDERATION: Add peer ───
+    if (req.url === '/api/federation/add' && req.method === 'POST') {
+        return readJSON(body => { federation.addPeer(body.url); jsonRes(200, { added: body.url }); });
+    }
+    if (req.url === '/api/federation') return jsonRes(200, federation.getStats());
+    
+    // ─── AI PROXY ───
+    if (req.url === '/api/ai/generate' && req.method === 'POST') {
+        return readBody(body => {
+            const aiReq = http.request({ hostname: '127.0.0.1', port: 5050, path: '/generate', method: 'POST', headers: { 'Content-Type': 'application/json' } }, (aiRes) => {
+                const parts = []; aiRes.on('data', c => parts.push(c));
+                aiRes.on('end', () => { res.writeHead(aiRes.statusCode, JSON_CORS); res.end(Buffer.concat(parts)); });
+            });
+            aiReq.on('error', () => jsonRes(503, { error: 'AI Inference Server offline. Starte: python ai/serve.py' }));
+            aiReq.write(body); aiReq.end();
+        });
     }
     
     // ─── CORS preflight ───
     if (req.method === 'OPTIONS') {
-        res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+        res.writeHead(200, { ...CORS, 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Filename,X-Title,Authorization' });
         return res.end();
     }
     
@@ -437,28 +518,42 @@ wss.on('connection', (ws) => {
 // ─────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 8080;
+
+// Federation peer connections from env
+if (process.env.FEDERATION_PEERS) {
+    process.env.FEDERATION_PEERS.split(',').forEach(url => federation.addPeer(url.trim()));
+}
+federation.startSync(60000);
+
 server.listen(PORT, () => {
     const gov = governor.getSnapshot();
+    const st = store.getStats();
     console.log('');
     console.log('═══════════════════════════════════════════════════════════');
-    console.log('  🌐 AETHER BINARY NETWORK v2.0.0');
-    console.log('  Das Binäre Internet – Voll Funktional');
+    console.log('  🌐 AETHER BINARY NETWORK v3.0.0');
+    console.log('  Das Binäre Internet – Vollständig');
     console.log('═══════════════════════════════════════════════════════════');
     console.log(`  📡 Server:       http://localhost:${PORT}`);
-    console.log(`  📊 API Stats:    http://localhost:${PORT}/api/stats`);
-    console.log(`  📐 Protocol:     http://localhost:${PORT}/api/protocol`);
+    console.log(`  🔮 Builder:      http://localhost:${PORT}/builder.html`);
+    console.log(`  📊 API:          http://localhost:${PORT}/api/stats`);
     console.log('───────────────────────────────────────────────────────────');
     console.log(`  ⚡ CPU Budget:    ${gov.cpu.budgetMs} ms/sec (0.3%)`);
     console.log(`  🧠 RAM Budget:    ${gov.ram.budgetMB} MB (0.3%)`);
     console.log(`  📶 BW Budget:     ${gov.bw.budgetKBps} KB/s (0.3%)`);
-    console.log(`  💾 Chunk Cache:   max ${gov.chunkCacheLimit} chunks`);
+    console.log(`  💾 Stored:        ${st.chunks} chunks (${st.totalStoredMB} MB)`);
     console.log('───────────────────────────────────────────────────────────');
-    console.log('  🛡️  Zero-Trust PoW:     ACTIVE');
-    console.log('  🌍 Kademlia DHT:        ACTIVE');
-    console.log('  📦 Binary Protocol:     MsgPack (0xAE)');
-    console.log('  📂 Chunk Engine:        ACTIVE (FEC)');
-    console.log('  🤖 AI Builder:          http://localhost:5050');
-    console.log('  🔒 GDPR Compliance:     ENFORCED');
+    console.log('  🛡️  Zero-Trust PoW:       ACTIVE');
+    console.log('  🌍 Kademlia DHT:          ACTIVE');
+    console.log('  📦 Binary Protocol:       0xAE MsgPack');
+    console.log('  📂 Chunk Engine + FEC:    ACTIVE (persistent)');
+    console.log('  🔐 E2E Encryption:        AES-256-GCM');
+    console.log('  🪪 Identity:              Ed25519 Signatures');
+    console.log('  🏷️  Naming (ANS):          aether://*.ae');
+    console.log(`  📚 Names Registered:      ${st.names}`);
+    console.log('  🎬 Media Engine:          Streaming + Range');
+    console.log('  🌐 Federation:            Mesh Sync');
+    console.log('  🤖 AI Builder:            http://localhost:5050');
+    console.log('  🔒 GDPR Compliance:       ENFORCED');
     console.log('═══════════════════════════════════════════════════════════');
     console.log('');
 });
