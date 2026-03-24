@@ -37,6 +37,7 @@ const { AetherIdentity, AetherCrypto, SessionManager } = require('./crypto/aethe
 const { AetherNamingService }             = require('./naming/naming-service');
 const { MediaEngine }                     = require('./media/media-engine');
 const { FederationManager }               = require('./federation/federation');
+const { RateLimiter, sanitizeAST, securityHeaders, validateNameInput, validateContentId, validateUploadSize, APIKeyStore } = require('./security/security');
 
 // ─── STATE ───────────────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -51,6 +52,9 @@ const sessionMgr = new SessionManager();
 const naming = new AetherNamingService(store);
 const media = new MediaEngine(chunkEngine, store);
 const federation = new FederationManager(store);
+const rateLimiter = new RateLimiter(60000, 120); // 120 requests/minute
+const apiKeys = new APIKeyStore(path.join(DATA_DIR, 'api-keys.json'));
+rateLimiter.startCleanup();
 
 // Setup persistence
 const TRUST_DB = path.join(__dirname, '..', 'trust-ledger.dat');
@@ -88,6 +92,18 @@ const MIME = {
 const publicDir = path.join(__dirname, '..', 'public');
 
 const server = http.createServer((req, res) => {
+    // ─── SECURITY: Rate Limiting ───
+    const clientIP = req.socket.remoteAddress || '0.0.0.0';
+    const rateCheck = rateLimiter.check(clientIP);
+    if (!rateCheck.allowed) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': String(rateCheck.retryAfter) });
+        return res.end(JSON.stringify({ error: 'Too many requests', retryAfter: rateCheck.retryAfter }));
+    }
+    
+    // ─── SECURITY: Headers ───
+    const secHeaders = securityHeaders();
+    for (const [k, v] of Object.entries(secHeaders)) res.setHeader(k, v);
+    
     // API Routes
     if (req.url === '/api/stats') {
         res.writeHead(200, { 
@@ -119,7 +135,7 @@ const server = http.createServer((req, res) => {
         });
         return res.end(JSON.stringify({
             name: 'Aether Binary Protocol',
-            version: '2.0.0',
+            version: '3.0.0',
             magic: '0xAE',
             types: { CONTROL: 0x01, CHUNK: 0x02, PARITY: 0x03, TRUST: 0x04 },
             encoding: 'MessagePack',
@@ -139,6 +155,8 @@ const server = http.createServer((req, res) => {
     // ─── UPLOAD: Split file into chunks and persist ───
     if (req.url === '/api/upload' && req.method === 'POST') {
         return readBody(body => {
+            const sizeErr = validateUploadSize(body.length, 100);
+            if (sizeErr) return jsonRes(413, { error: sizeErr });
             const contentId = crypto.randomUUID().substring(0, 8);
             const result = chunkEngine.split(body, contentId);
             // Persist all chunks + manifest
@@ -191,22 +209,29 @@ const server = http.createServer((req, res) => {
     // ─── NAMING: List all ───
     if (req.url === '/api/names') return jsonRes(200, naming.list());
     
-    // ─── IDENTITY: Generate keypair ───
+    // ─── IDENTITY: Generate keypair (encrypted with passphrase) ───
     if (req.url === '/api/identity/generate' && req.method === 'POST') {
-        const identity = AetherIdentity.generate();
-        store.saveIdentity(identity.fingerprint, { created: Date.now() });
-        return jsonRes(200, identity);
-    }
-    
-    // ─── IDENTITY: Sign data ───
-    if (req.url === '/api/identity/sign' && req.method === 'POST') {
         return readJSON(body => {
-            const sig = AetherIdentity.sign(body.data, body.privateKey);
-            jsonRes(200, { signature: sig });
+            if (!body.passphrase || body.passphrase.length < 8) {
+                return jsonRes(400, { error: 'Passphrase required (min 8 chars). Used to encrypt your private key.' });
+            }
+            const identity = AetherIdentity.generate();
+            store.saveIdentity(identity.fingerprint, { created: Date.now() });
+            
+            // Encrypt private key with passphrase before sending
+            const encKey = crypto.scryptSync(body.passphrase, 'aether-identity', 32);
+            const encrypted = AetherCrypto.encryptFrame(Buffer.from(identity.privateKey), encKey);
+            
+            jsonRes(200, {
+                fingerprint: identity.fingerprint,
+                publicKey: identity.publicKey,
+                encryptedPrivateKey: encrypted.toString('base64'),
+                warning: 'Private key is encrypted with your passphrase. Store it safely. Never share it.',
+            });
         });
     }
     
-    // ─── IDENTITY: Verify ───
+    // ─── IDENTITY: Verify signature (public operation, safe) ───
     if (req.url === '/api/identity/verify' && req.method === 'POST') {
         return readJSON(body => {
             const valid = AetherIdentity.verify(body.data, body.signature, body.publicKey);
