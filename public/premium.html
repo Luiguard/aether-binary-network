@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aether Premium UI Showcase</title>
+    <link rel="stylesheet" href="renderer.css">
+    <style>
+        body { margin: 0; padding: 0; min-height: 100vh; overflow-x: hidden; }
+        #app { width: 100%; min-height: 100vh; position: relative; }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <!-- The Aether Logic Engine -->
+    <script src="renderer.js"></script>
+    <script>
+        // This is exactly what the Aether Client receives over the network:
+        // A pure, highly optimized Binary AST. No HTML, no bloated JS logic.
+        
+        const ast = [
+            [1, "AnimatedBg", {}],
+            [1, "Container", { mt: 60, mb: 60 }, [
+                [1, "Col", { gap: 32 }, [
+                    
+                    // HEADER SECTION
+                    [1, "Col", { align: "center", gap: 16 }, [
+                        [1, "Badge", { label: "Aether Engine v3.0", color: "primary" }],
+                        [1, "Text", { content: "Premium. Dynamic. Logic.", style: "h1", gradient: true }],
+                        [1, "Text", { content: "Identische Qualität, aber 40x kleiner und 100% sicher. Klick den Button, um die State-Engine zu testen:", style: "sub" }]
+                    ]],
+
+                    // INTERACTIVE CARD LAYER
+                    [1, "Grid", { cols: 2 }, [
+                        
+                        // Card 1: The Interactive Shop
+                        [1, "Panel", { glass: true, padding: 32, hoverEffect: true }, [
+                            [1, "Col", { gap: 16 }, [
+                                [1, "Row", { align: "space-between" }, [
+                                    [1, "Text", { content: "Aether Node Key", style: "h2" }],
+                                    [1, "Badge", { label: "199.00 AE", color: "green" }]
+                                ]],
+                                [1, "Text", { content: "In den Warenkorb: {cart} Items", style: "label" }],
+                                
+                                [1, "Row", { gap: 12, mt: 16 }, [
+                                    [1, "Button", { label: "-1", variant: "outline", action: ["dec", "cart"] }],
+                                    [1, "Button", { label: "+1", action: ["inc", "cart"] }],
+                                    [1, "Button", { label: "Zur Kasse", color: "purple" }]
+                                ]]
+                            ]]
+                        ]],
+
+                        // Card 2: Personalization (Local Logic)
+                        [1, "Panel", { glass: true, padding: 32, hoverEffect: true }, [
+                            [1, "Col", { gap: 16 }, [
+                                [1, "Text", { content: "Theme anpassen", style: "h2" }],
+                                [1, "Text", { content: "Statusmeldung anzeigen? {showWarning}", style: "label" }],
+                                
+                                [1, "Switch", { label: "Warnung triggern", action: ["toggle", "showWarning"] }],
+                                
+                                [1, "Button", { label: "Theme umschalten", variant: "outline", action: ["toggle", "dark"] }]
+                            ]]
+                        ]]
+                    ]],
+
+                    // DYNAMIC STATE RENDERING
+                    // This section changes based on the "showWarning" state
+                    [1, "Panel", { glass: true, padding: 32, blur: "40px", mt: 24, class: "ae-shadow" }, [
+                        [1, "Text", { content: "Live State Dump", style: "label" }],
+                        [1, "Divider", { mt: 12, mb: 12 }],
+                        [1, "Text", { content: "Items im Cart: {cart}", style: "h3", color: "blue" }],
+                        [1, "Text", { content: "Warnung aktiv: {showWarning}", style: "h3", color: "orange" }]
+                    ]]
+
+                ]]
+            ]]
+        ];
+
+        // Initial State
+        const initialState = {
+            cart: 0,
+            showWarning: false,
+            dark: true
+        };
+
+        // Render the AST
+        const target = document.getElementById('app');
+        AetherRenderer.render(ast, target, initialState);
+    </script>
+</body>
+</html>

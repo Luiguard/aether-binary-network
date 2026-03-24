@@ -14,17 +14,36 @@
 
 const AetherRenderer = (() => {
 
+    // ─── STATE ENGINE ────────────────────────────────────────────
+    let appState = {};
+    const stateListeners = new Set();
+    
+    function setState(key, val) {
+        appState[key] = val;
+        stateListeners.forEach(fn => fn());
+    }
+
+    function evalString(str) {
+        if (typeof str !== 'string') return str;
+        return str.replace(/\{(\w+)\}/g, (_, k) => appState[k] ?? `{${k}}`);
+    }
+
     // ─── COMPONENT REGISTRY ──────────────────────────────────────
     const COMPONENTS = {
+        
+        AnimatedBg() {
+            return el('div', 'ae-mesh-bg');
+        },
 
         Button(props, children, container) {
             const btn = el('button', 'ae-btn');
-            btn.textContent = props.label || '';
+            btn.textContent = evalString(props.label || '');
             if (props.color) btn.style.setProperty('--ae-color', resolveColor(props.color));
             if (props.icon) btn.textContent = resolveIcon(props.icon) + ' ' + (props.label || '');
-            if (props.id) btn.id = props.id;
-            if (props.action) btn.dataset.action = props.action;
-            btn.addEventListener('click', () => dispatchAction(props.action, props));
+            if (props.variant === 'outline') btn.classList.add('ae-btn-outline');
+            if (props.action) {
+                btn.addEventListener('click', () => handleAction(props.action));
+            }
             return btn;
         },
 
@@ -33,9 +52,10 @@ const AetherRenderer = (() => {
                         props.style === 'h3' ? 'h3' : props.style === 'sub' ? 'p' : 
                         props.style === 'label' ? 'label' : 'span';
             const t = el(tag, 'ae-text');
-            t.textContent = props.content || '';
+            t.textContent = evalString(props.content || '');
             if (props.color) t.style.color = resolveColor(props.color);
             if (props.style === 'sub') t.classList.add('ae-sub');
+            if (props.gradient) t.classList.add('ae-gradient-text');
             return t;
         },
 
@@ -95,8 +115,8 @@ const AetherRenderer = (() => {
             if (props.theme === 'dark') p.classList.add('ae-dark');
             if (props.blur) p.style.backdropFilter = `blur(${props.blur})`;
             if (props.padding) p.style.padding = props.padding + 'px';
-            if (props.id) p.id = props.id;
             if (props.height) p.style.minHeight = props.height + 'px';
+            if (props.hoverEffect) p.classList.add('ae-hover-effect');
             renderChildren(children, p);
             return p;
         },
@@ -387,10 +407,21 @@ const AetherRenderer = (() => {
         });
     }
 
-    function dispatchAction(actionCode, props) {
-        document.dispatchEvent(new CustomEvent('aether-action', { 
-            detail: { action: actionCode, props } 
-        }));
+    function handleAction(action) {
+            if (Array.isArray(action)) {
+                if (action[0] === 'setState') setState(action[1], action[2]);
+                if (action[0] === 'inc') setState(action[1], (appState[action[1]] || 0) + 1);
+                if (action[0] === 'dec') setState(action[1], (appState[action[1]] || 0) - 1);
+                if (action[0] === 'toggle') setState(action[1], !appState[action[1]]);
+            }
+        }
+
+    function applyBaseProps(node, props) {
+        if (!props) return;
+        if (props.id) node.id = props.id;
+        if (props.class) node.className += ' ' + props.class;
+        if (props.mt !== undefined) node.style.marginTop = props.mt + 'px';
+        if (props.mb !== undefined) node.style.marginBottom = props.mb + 'px';
     }
 
     // ─── CORE RENDER FUNCTION ────────────────────────────────────
@@ -408,24 +439,33 @@ const AetherRenderer = (() => {
             return fallback;
         }
 
-        return factory(props, children);
+        const node = factory(props, children);
+        applyBaseProps(node, props);
+        return node;
     }
+
+    let currentRoot = null;
+    let currentRenderAstArray = null;
 
     /**
      * Render a complete Aether Binary AST into a target container.
-     * @param {Array} ast - The binary AST array [1, "Component", {props}, [children]]
-     * @param {HTMLElement} target - DOM element to render into
      */
-    function render(ast, target) {
-        target.innerHTML = '';
-        const node = renderNode(ast);
-        if (node) target.appendChild(node);
-    }
+    function render(astArray, target, initialState = {}) {
+        if (Object.keys(appState).length === 0) appState = initialState;
+        currentRoot = target;
+        currentRenderAstArray = astArray;
+        
+        // Setup reactivity: when state changes, soft-rerender
+        if (stateListeners.size === 0) {
+            stateListeners.add(() => {
+                target.innerHTML = '';
+                astArray.forEach(ast => {
+                    const node = renderNode(ast);
+                    if (node) target.appendChild(node);
+                });
+            });
+        }
 
-    /**
-     * Render multiple AST nodes into a target container.
-     */
-    function renderAll(astArray, target) {
         target.innerHTML = '';
         astArray.forEach(ast => {
             const node = renderNode(ast);
@@ -433,5 +473,5 @@ const AetherRenderer = (() => {
         });
     }
 
-    return { render, renderAll, renderNode };
+    return { render, renderNode, setState, getState: () => appState };
 })();
